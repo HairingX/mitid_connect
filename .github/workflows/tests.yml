@@ -1,0 +1,42 @@
+name: Tests
+
+# The workflows and the tools are shared by every library of the owner, from
+# HairingX/workflows; this file is a copy of its template and is checked to stay so.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The shell given explicitly, so GitHub runs every step with pipefail.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out repository, with every tag
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # setuptools-scm works the package's version out from the tags.
+          fetch-depth: 0
+
+      - name: Tests and type check
+        uses: HairingX/workflows/python/actions/tests@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+          branch: ${{ github.head_ref || github.ref_name }}

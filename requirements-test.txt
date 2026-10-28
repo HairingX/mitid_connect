@@ -1,0 +1,11 @@
+# What the tests and the type check run with. Pinned, so a new release cannot turn a build red by
+# itself; Dependabot proposes each update as a pull request.
+pyright==1.1.414
+pytest==9.2.0
+pytest-cov==7.1.0
+# The package's dependencies, at the versions Home Assistant's integrations pin.
+beautifulsoup4==4.13.3
+lxml==6.1.2
+pycryptodomex==3.24.1
+qrcode==8.2
+requests==2.34.2
