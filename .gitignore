@@ -1,0 +1,12 @@
+__pycache__/
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.coverage
+.idea/
+.DS_Store
+.claude/worktrees/
+mysecrets.py
+

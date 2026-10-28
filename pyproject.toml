@@ -1,0 +1,76 @@
+[build-system]
+# The version comes from the git tag (setuptools-scm), not from a file: a release never commits it.
+requires = ["setuptools>=80", "setuptools-scm[simple]>=9.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mitid_connect"
+dynamic = ["version"]
+description = "Log in through MitID from Python: an unofficial implementation of MitID's browser client, with the MitID app or a code token."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "HairingX" }]
+keywords = ["mitid", "nemlog-in", "login", "denmark"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "pycryptodomex>=3.24.1",
+    "qrcode>=8.2",
+    "requests>=2.31.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/HairingX/mitid_connect"
+Source = "https://github.com/HairingX/mitid_connect"
+Issues = "https://github.com/HairingX/mitid_connect/issues"
+Releases = "https://github.com/HairingX/mitid_connect/releases"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mitid_connect = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: logs in to a real MitID account; skipped unless one is configured. Exclude with -m \"not live\".",
+]
+
+[tool.pyright]
+# The standard belongs to the repository, not to a personal editor setting: an IDE and a CI
+# run must agree on what counts as an error.
+include = ["src", "tests"]
+exclude = ["**/__pycache__", "**/.venv"]
+typeCheckingMode = "strict"
+reportMissingTypeStubs = "none"
+# Not yet checked, during the transition below; each pull request takes files off this list.
+ignore = [
+    "src/mitid_connect/browser_client.py",
+    "src/mitid_connect/helpers.py",
+]
+
+[[tool.pyright.executionEnvironments]]
+# Tests import the installed package, as its users do, and reach into its parts.
+root = "tests"
+reportPrivateUsage = "none"
+
+[tool.hairingx-workflows]
+transition = """The MitID browser client comes as it was written, before the shared standard: it \
+is typed and tested module by module."""
+# The coverage the tests reach now; each pull request raises it, until it is 100.
+coverage = 18
