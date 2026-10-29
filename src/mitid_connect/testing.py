@@ -142,7 +142,7 @@ class SimulatedMitID:
 
     async def __aenter__(self) -> Self:
         self._server = TestServer(self.app)
-        await self._server.start_server()
+        await self._server.start_server(access_log=None)
         return self
 
     async def __aexit__(
