@@ -58,6 +58,7 @@ include = ["src", "tests"]
 exclude = ["**/__pycache__", "**/.venv"]
 typeCheckingMode = "strict"
 reportMissingTypeStubs = "none"
+enableTypeIgnoreComments = false
 
 [[tool.pyright.executionEnvironments]]
 # Tests import the installed package, as its users do, and reach into its parts.
