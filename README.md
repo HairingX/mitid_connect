@@ -26,7 +26,8 @@ runs, `get_current_qr_codes()` gives the two QR codes to show in turn, and `stat
 far it has come.
 
 `mitid_connect.testing.SimulatedMitID` is a MitID on a local test server, for tests. It answers
-an app login as MitID does, and checks the client's proofs as MitID does.
+an app login as MitID does, and checks the client's proofs as MitID does. Its `Network` gives each
+answer a latency, fixed or drawn from a range, and fails a share of them, for stress tests.
 
 It is used by [aula_connect](https://github.com/HairingX/aula_connect) to log in to Aula.
 

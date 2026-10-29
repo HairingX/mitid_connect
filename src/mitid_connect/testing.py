@@ -7,11 +7,14 @@ only its requests. Only the app authenticator is simulated.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import hmac
+import random
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Self, cast
@@ -20,6 +23,63 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from .srp import AesDecryptWithKey, CustomSRP, bytes_to_hex, hex_to_int, int_to_hex, pad
+
+@dataclass
+class Network:
+    """How a simulated server's network behaves: how long each answer takes, and how often it fails.
+
+    `latency` is seconds, or a (shortest, longest) range drawn from for each request. A failing
+    request is answered 503 after its latency, as an overloaded server answers.
+    """
+
+    latency: float | tuple[float, float] = 0.0
+    failure_rate: float = 0.0
+    seed: int | None = None
+    requests: int = 0
+    """Requests answered so far."""
+    failures: int = 0
+    """Requests answered with a failure so far."""
+    concurrent: int = 0
+    most_concurrent: int = 0
+    """The most requests that were waiting for an answer at the same time."""
+
+    def __post_init__(self) -> None:
+        self._random = random.Random(self.seed)
+
+    def delay(self) -> float:
+        """The latency of the next answer, in seconds."""
+        if isinstance(self.latency, tuple):
+            return self._random.uniform(*self.latency)
+        return self.latency
+
+    async def answer(
+        self, request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]
+    ) -> web.StreamResponse:
+        """Answer `request` after the network's latency, or with its failure."""
+        self.requests += 1
+        self.concurrent += 1
+        self.most_concurrent = max(self.most_concurrent, self.concurrent)
+        try:
+            await asyncio.sleep(self.delay())
+            if self._random.random() < self.failure_rate:
+                self.failures += 1
+                return web.json_response({"message": "Service unavailable"}, status=503)
+            return await handler(request)
+        finally:
+            self.concurrent -= 1
+
+    @property
+    def middleware(self) -> Callable[..., Awaitable[web.StreamResponse]]:
+        """The network as an aiohttp middleware, for a server's application."""
+
+        @web.middleware
+        async def network(
+            request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]
+        ) -> web.StreamResponse:
+            return await self.answer(request, handler)
+
+        return network
+
 
 APP_COMBINATION = "S3"
 SERVICE_PROVIDER = "Simulated service"
@@ -54,15 +114,16 @@ class SimulatedMitID:
     REFERENCE_TEXT_HEADER = "Log in to"
     REFERENCE_TEXT_BODY = SERVICE_PROVIDER
 
-    def __init__(self, users: set[str] | None = None) -> None:
+    def __init__(self, users: set[str] | None = None, network: Network | None = None) -> None:
         self.users = users if users is not None else {"parent"}
+        self.network = network or Network()
         self.client_hash = secrets.token_hex(32)
         self.app_answers = ["timeout", "channel_validation_tqr", "channel_verified", "OK"]
         """What the app's poll answers, one each poll; the last is repeated."""
         self.authorization_code = "simulated-authorization-code"
         self.logins: dict[str, _Login] = {}
         self._server: TestServer | None = None
-        self.app = web.Application()
+        self.app = web.Application(middlewares=[self.network.middleware])
         core = "/mitid-core-client-backend"
         app = "/mitid-code-app-auth/v1/authenticator-sessions/web/{asid}"
         self.app.add_routes(
