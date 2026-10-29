@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import aiohttp
 import qrcode
@@ -22,6 +22,8 @@ DEFAULT_TIMEOUT = 30
 """Seconds a single request to MitID may take."""
 
 MITID_URL = "https://www.mitid.dk"
+
+_COMBINATION_IDS = {"APP": "S3", "TOKEN": "S1"}
 
 
 class MitIDError(Exception):
@@ -129,25 +131,23 @@ class BrowserClient:
             codes.append(code)
         self.qr1, self.qr2 = codes
 
+    def _srp_proof(self, srp: CustomSRP, init: Mapping[str, Any], password: str) -> str:
+        try:
+            return srp.SRPStage3(
+                str(init["srpSalt"]["value"]), str(init["randomB"]["value"]), password, self.current_authenticator_session_id
+            )
+        except ValueError as err:
+            raise MitIDError(f"MitID answered with an invalid SRP value: {err}") from None
+
     @staticmethod
-    def _authenticator_name(combination_id: str) -> str:
+    def _authenticator_name(combination_id: str) -> str | None:
         match combination_id:
             case "S4" | "S3" | "L2":
                 return "APP"
             case "S1":
                 return "TOKEN"
             case _:
-                raise MitIDError(f"No such combination ID ({combination_id})")
-
-    @staticmethod
-    def _combination_id(authenticator_name: str) -> str:
-        match authenticator_name:
-            case "APP":
-                return "S3"
-            case "TOKEN":
-                return "S1"
-            case _:
-                raise MitIDError(f"No such authenticator name ({authenticator_name})")
+                return None
 
     def _take_next_authenticator(self, data: Mapping[str, Any]) -> None:
         nxt = cast(dict[str, Any], data["nextAuthenticator"])
@@ -186,10 +186,15 @@ class BrowserClient:
         answer = cast(dict[str, Any], data)
         self._cannot_start(answer)
         self._take_next_authenticator(answer)
-        return {
-            self._authenticator_name(str(combination["id"])): str(combination["combinationItems"][0]["name"])
-            for combination in cast(list[dict[str, Any]], answer["combinations"])
-        }
+        # A user may also have authenticators this client cannot use, such as a chip; they are left out.
+        authenticators: dict[str, str] = {}
+        for combination in cast(list[dict[str, Any]], answer["combinations"]):
+            name = self._authenticator_name(str(combination["id"]))
+            if name is not None:
+                authenticators[name] = str(combination["combinationItems"][0]["name"])
+        if not authenticators:
+            raise MitIDError("The user has no authenticator this client can use (the app or a code token)")
+        return authenticators
 
     def _create_flow_value_proof(self) -> bytes:
         hashed_broker_security_context = hashlib.sha256(self.broker_security_context.encode("utf8")).hexdigest()
@@ -203,13 +208,13 @@ class BrowserClient:
             f"{b64(self.reference_text_header)},{b64(self.reference_text_body)},{b64(self.service_provider_name)}"
         ).encode("utf-8")
 
-    async def _select_authenticator(self, authenticator_type: str) -> None:
+    async def _select_authenticator(self, authenticator_type: Literal["APP", "TOKEN"]) -> None:
         if authenticator_type == self.current_authenticator_type:
             return
         status, data = await self._call(
             "POST",
             f"/mitid-core-client-backend/v2/authentication-sessions/{self.authentication_session_id}/next",
-            {"combinationId": self._combination_id(authenticator_type)},
+            {"combinationId": _COMBINATION_IDS[authenticator_type]},
         )
         if status != 200 or not isinstance(data, dict):
             raise self._failure("Choosing the authenticator", status, data)
@@ -250,12 +255,7 @@ class BrowserClient:
         init = cast(dict[str, Any], data)
 
         timer_2 = time.time()
-        m1 = srp.SRPStage3(
-            str(init["srpSalt"]["value"]),
-            str(init["randomB"]["value"]),
-            bytes_to_hex(self.current_authenticator_session_flow_key.encode("utf-8")),
-            self.current_authenticator_session_id,
-        )
+        m1 = self._srp_proof(srp, init, bytes_to_hex(self.current_authenticator_session_flow_key.encode("utf-8")))
         key = hashlib.sha256(("OTP" + token_digits + bytes_to_hex(srp.K_bits)).encode("utf8")).digest()
         flow_value_proof = hmac.new(key, self._create_flow_value_proof(), hashlib.sha256).hexdigest()
         timer_2 = time.time() - timer_2
@@ -306,9 +306,7 @@ class BrowserClient:
         hashed = hashlib.pbkdf2_hmac(
             "sha256", password.encode("utf-8"), hex_to_bytes(str(init["pbkdf2Salt"]["value"])), 20000, 32
         ).hex()
-        m1 = srp.SRPStage3(
-            str(init["srpSalt"]["value"]), str(init["randomB"]["value"]), hashed, self.current_authenticator_session_id
-        )
+        m1 = self._srp_proof(srp, init, hashed)
         key = hashlib.sha256(("flowValues" + bytes_to_hex(srp.K_bits)).encode("utf8")).digest()
         flow_value_proof = hmac.new(key, self._create_flow_value_proof(), hashlib.sha256).hexdigest()
         timer_2 = time.time() - timer_2
@@ -409,9 +407,7 @@ class BrowserClient:
         password = hashlib.sha256(
             base64.b64decode(self.auth_response) + self.current_authenticator_session_flow_key.encode("utf8")
         ).hexdigest()
-        m1 = srp.SRPStage3(
-            str(init["srpSalt"]["value"]), str(init["randomB"]["value"]), password, self.current_authenticator_session_id
-        )
+        m1 = self._srp_proof(srp, init, password)
         key = hashlib.sha256(("flowValues" + bytes_to_hex(srp.K_bits)).encode("utf8")).digest()
         flow_value_proof = hmac.new(key, self._create_flow_value_proof(), hashlib.sha256).hexdigest()
         timer_2 = time.time() - timer_2

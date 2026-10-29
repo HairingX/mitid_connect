@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import binascii
 import logging
 from typing import Any
 
@@ -20,17 +19,8 @@ from mitid_connect import (
     choose_between_multiple_identitites,
     get_authentication_code,
 )
-from mitid_connect.testing import SimulatedMitID
-
-
-async def _client(mitid: SimulatedMitID, session: aiohttp.ClientSession) -> BrowserClient:
-    aux = mitid.new_login()
-    client_hash = binascii.hexlify(base64.b64decode(aux["coreClient"]["checksum"])).decode("ascii")
-    client = BrowserClient(
-        session, client_hash, aux["parameters"]["authenticationSessionId"], base_url=mitid.url
-    )
-    await client.start()
-    return client
+from mitid_connect.testing import SimulatedMitID, User
+from simulation import started_client
 
 
 def test_an_app_login_gives_the_authorization_code() -> None:
@@ -44,7 +34,7 @@ def test_an_app_login_gives_the_authorization_code() -> None:
 def test_the_login_shows_the_qr_codes_until_they_are_scanned() -> None:
     async def login() -> list[tuple[str, bool]]:
         async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
-            client = await _client(mitid, session)
+            client = await started_client(mitid, session)
             assert await client.identify_as_user_and_get_available_authenticators("parent") == {"APP": "MitID app"}
             await client.start_app_authentication()
             steps: list[tuple[str, bool]] = []
@@ -64,7 +54,7 @@ def test_the_app_can_be_asked_to_show_a_code_instead() -> None:
     async def login() -> dict[str, Any]:
         async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
             mitid.app_answers = ["channel_validation_otp"]
-            client = await _client(mitid, session)
+            client = await started_client(mitid, session)
             await client.identify_as_user_and_get_available_authenticators("parent")
             await client.start_app_authentication()
             return await client.poll_app_authentication_status()
@@ -110,7 +100,7 @@ def test_a_method_the_user_does_not_have_fails(method: str, error: type[Exceptio
 def test_a_wrong_proof_is_refused() -> None:
     async def login() -> None:
         async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
-            client = await _client(mitid, session)
+            client = await started_client(mitid, session)
             await client.identify_as_user_and_get_available_authenticators("parent")
             client.client_hash = "00" * 32
             await client.authenticate_with_app()
@@ -152,4 +142,135 @@ def test_an_identity_that_is_not_offered_cannot_be_chosen() -> None:
             await choose_between_multiple_identitites(session, "http://192.0.2.1/", BeautifulSoup(page, "html.parser"), 3)
 
     with pytest.raises(ValueError):
+        asyncio.run(run())
+
+
+def test_an_identity_cannot_be_chosen_without_a_form() -> None:
+    async def run() -> None:
+        async with aiohttp.ClientSession() as session:
+            await choose_between_multiple_identitites(session, "http://192.0.2.1/", BeautifulSoup("<p/>", "html.parser"))
+
+    with pytest.raises(ValueError, match="no identities"):
+        asyncio.run(run())
+
+
+def test_an_identity_without_a_link_cannot_be_chosen() -> None:
+    page = '<form></form><div class="list-link-box">Parent</div>'
+
+    async def run() -> None:
+        async with aiohttp.ClientSession() as session:
+            await choose_between_multiple_identitites(session, "http://192.0.2.1/", BeautifulSoup(page, "html.parser"))
+
+    with pytest.raises(ValueError, match="no link"):
+        asyncio.run(run())
+
+
+def test_a_login_mitid_does_not_know_cannot_identify_the_user() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = BrowserClient(session, mitid.client_hash, "unknown-session", base_url=mitid.url)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+
+    with pytest.raises(MitIDError, match=r"Identifying the user failed: HTTP 400 \(control.authentication_session_not_found\)"):
+        asyncio.run(run())
+
+
+def test_a_user_with_no_authenticator_that_can_be_started_cannot_log_in() -> None:
+    async def run() -> None:
+        async with SimulatedMitID({"parent": User(app=False)}) as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+
+    with pytest.raises(MitIDError, match="Not available"):
+        asyncio.run(run())
+
+
+def test_an_authenticator_the_user_does_not_have_cannot_be_chosen() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+            await client.authenticate_with_token("123456")
+
+    with pytest.raises(MitIDError, match="Not available"):
+        asyncio.run(run())
+
+
+def test_the_app_login_of_an_authenticator_session_mitid_does_not_know_fails() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+            client.current_authenticator_session_id = "unknown"
+            await client.start_app_authentication()
+
+    with pytest.raises(MitIDError, match="Requesting the app login failed: HTTP 404"):
+        asyncio.run(run())
+
+
+def test_the_app_cannot_be_polled_before_its_login_is_requested() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.poll_app_authentication_status()
+
+    with pytest.raises(MitIDError, match="start_app_authentication"):
+        asyncio.run(run())
+
+
+def test_a_poll_mitid_refuses_is_an_error() -> None:
+    async def run() -> dict[str, Any]:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+            await client.start_app_authentication()
+            client.ticket = "wrong-ticket"
+            return await client.poll_app_authentication_status()
+
+    assert asyncio.run(run()) == {"status": "error", "message": "Poll request failed"}
+
+
+def test_the_app_login_cannot_be_completed_before_the_app_approves() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.complete_app_authentication()
+
+    with pytest.raises(MitIDError, match="poll until"):
+        asyncio.run(run())
+
+
+def test_an_app_signature_that_is_not_the_apps_is_refused() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            mitid.app_answers = ["OK"]
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+            await client.start_app_authentication()
+            await client.poll_app_authentication_status()
+            client.auth_response_signature = base64.b64encode(b"not the signature").decode("ascii")
+            await client.complete_app_authentication()
+
+    with pytest.raises(MitIDError, match=r"Verifying the app's signature failed: HTTP 400 \(auth.codeapp.signature_invalid\)"):
+        asyncio.run(run())
+
+
+def test_a_login_cannot_be_finalized_before_it_is_authenticated() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.finalize_authentication_and_get_authorization_code()
+
+    with pytest.raises(MitIDError, match="No finalization session"):
+        asyncio.run(run())
+
+
+def test_a_finalization_mitid_does_not_know_fails() -> None:
+    async def run() -> None:
+        async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            client.finalization_authentication_session_id = "unknown"
+            await client.finalize_authentication_and_get_authorization_code()
+
+    with pytest.raises(MitIDError, match="Finalizing the login failed: HTTP 400"):
         asyncio.run(run())

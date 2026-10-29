@@ -63,9 +63,3 @@ reportMissingTypeStubs = "none"
 # Tests import the installed package, as its users do, and reach into its parts.
 root = "tests"
 reportPrivateUsage = "none"
-
-[tool.hairingx-workflows]
-transition = """The MitID browser client comes as it was written, before the shared standard: its \
-authenticators are tested one by one."""
-# The coverage the tests reach now; each pull request raises it, until it is 100.
-coverage = 84
