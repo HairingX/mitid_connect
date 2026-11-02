@@ -56,8 +56,9 @@ obvious from the name - one or two lines, no narrative.
 ## Conventions
 
 - All documentation, comments and commit messages are in English.
-- The package lives in `src/<package>/`, ships its types (`py.typed`), and supports Python 3.12
-  and later (`requires-python = ">=3.12"`); the tests run on 3.12, 3.13 and 3.14.
+- The package lives in `src/<package>/` and ships its types (`py.typed`). It supports the Python
+  Home Assistant runs on, 3.14, and later (`requires-python = ">=3.14"`), as it is made for its
+  integrations; the tests run on 3.14 alone.
 - pyright strict must report 0 errors (`pyright`); the configuration is in `pyproject.toml`.
   No `# type: ignore` and no rule turned off.
 - The tests are pytest, in `tests/`, and cover every line of the package; the build fails below
@@ -128,9 +129,9 @@ version here.
 ## Branches and pull requests
 
 - Every change goes through a branch and a pull request: `main` takes no push. The ruleset in
-  `.github/rulesets/main.json` enforces it, with the checks "Python 3.12", "Python 3.13",
-  "Python 3.14" and "Libraries released and pinned" required; its only bypass is the owner's,
-  and only for merging a pull request. A change to what a user gets - the library's code or
+  `.github/rulesets/main.json` enforces it, with the checks "Python 3.14" and "Libraries
+  released and pinned" required; its only bypass is the owner's, and only for merging a pull
+  request. A change to what a user gets - the library's code or
   documentation - comes with its tests.
 - Name every branch by the kind of change, as the release draft's labels follow the name;
   `.github/rulesets/branch-names.json` refuses any other name. `feature/<what>` is labelled
