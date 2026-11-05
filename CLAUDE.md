@@ -3,7 +3,7 @@
 A Python library that logs in through MitID: an unofficial implementation of MitID's browser
 client, which authenticates with the MitID app (QR code or one-time code) or a code token and
 gives back the authorization code the service being logged in to exchanges for its own tokens.
-It knows nothing of any one service; `aula_connect` is one that uses it.
+It knows nothing of any one service.
 
 ## This library
 
