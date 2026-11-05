@@ -31,8 +31,6 @@ proofs as MitID does. Its users have the app by default; a `User` gives one a co
 digits and the password instead. Its `Network` gives each answer a latency, fixed or drawn from a
 range, and fails a share of them, for stress tests.
 
-It is used by [aula_connect](https://github.com/HairingX/aula_connect) to log in to Aula.
-
 ## Origin and licence
 
 It carries on MitID-BrowserClient by Hundter, under the MIT licence (`LICENSE`).
