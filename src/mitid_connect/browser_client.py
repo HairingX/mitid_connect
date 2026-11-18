@@ -23,7 +23,9 @@ DEFAULT_TIMEOUT = 30
 
 MITID_URL = "https://www.mitid.dk"
 
-_COMBINATION_IDS = {"APP": "S3", "TOKEN": "S1"}
+# The ID chosen where MitID offers an authenticator under several, such as the app alone (S3) and
+# with a chip (S4): the plain one.
+_PREFERRED_COMBINATION_IDS = {"APP": "S3", "TOKEN": "S1"}
 
 
 class MitIDError(Exception):
@@ -60,6 +62,8 @@ class BrowserClient:
         self.reference_text_header = ""
         self.reference_text_body = ""
         self.current_authenticator_type = ""
+        self.combination_ids: dict[str, str] = {}
+        """The combination ID MitID offered the user each authenticator under, by its name."""
         self.current_authenticator_session_flow_key = ""
         self.current_authenticator_eafe_hash = ""
         self.current_authenticator_session_id = ""
@@ -188,10 +192,17 @@ class BrowserClient:
         self._take_next_authenticator(answer)
         # A user may also have authenticators this client cannot use, such as a chip; they are left out.
         authenticators: dict[str, str] = {}
+        offered: dict[str, list[str]] = {}
         for combination in cast(list[dict[str, Any]], answer["combinations"]):
-            name = self._authenticator_name(str(combination["id"]))
+            combination_id = str(combination["id"])
+            name = self._authenticator_name(combination_id)
             if name is not None:
-                authenticators[name] = str(combination["combinationItems"][0]["name"])
+                authenticators.setdefault(name, str(combination["combinationItems"][0]["name"]))
+                offered.setdefault(name, []).append(combination_id)
+        self.combination_ids = {
+            name: _PREFERRED_COMBINATION_IDS[name] if _PREFERRED_COMBINATION_IDS[name] in ids else ids[0]
+            for name, ids in offered.items()
+        }
         if not authenticators:
             raise MitIDError("The user has no authenticator this client can use (the app or a code token)")
         return authenticators
@@ -211,10 +222,14 @@ class BrowserClient:
     async def _select_authenticator(self, authenticator_type: Literal["APP", "TOKEN"]) -> None:
         if authenticator_type == self.current_authenticator_type:
             return
+        combination_id = self.combination_ids.get(authenticator_type)
+        if combination_id is None:
+            offered = ", ".join(sorted(self.combination_ids)) or "none"
+            raise MitIDError(f"MitID offers the user no {authenticator_type} authenticator (offered: {offered})")
         status, data = await self._call(
             "POST",
             f"/mitid-core-client-backend/v2/authentication-sessions/{self.authentication_session_id}/next",
-            {"combinationId": _COMBINATION_IDS[authenticator_type]},
+            {"combinationId": combination_id},
         )
         if status != 200 or not isinstance(data, dict):
             raise self._failure("Choosing the authenticator", status, data)
