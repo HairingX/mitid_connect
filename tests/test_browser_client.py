@@ -97,6 +97,35 @@ def test_a_method_the_user_does_not_have_fails(method: str, error: type[Exceptio
         asyncio.run(login())
 
 
+@pytest.mark.parametrize("combination", ["S4", "L2"])
+def test_the_app_is_chosen_under_the_combination_mitid_offers_it(combination: str) -> None:
+    user = User(app=True, code_token=True, app_combination=combination, first="TOKEN")
+
+    async def login() -> tuple[dict[str, str], str]:
+        async with SimulatedMitID({"parent": user}) as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+            offered = dict(client.combination_ids)
+            return offered, await get_authentication_code(session, mitid.new_login(), "APP", "parent", base_url=mitid.url)
+
+    offered, code = asyncio.run(login())
+    assert offered == {"APP": combination, "TOKEN": "S1"}
+    assert code == "simulated-authorization-code"
+
+
+def test_mitid_refuses_a_combination_it_did_not_offer() -> None:
+    async def login() -> None:
+        user = User(app=True, code_token=True, app_combination="S4", first="TOKEN")
+        async with SimulatedMitID({"parent": user}) as mitid, aiohttp.ClientSession() as session:
+            client = await started_client(mitid, session)
+            await client.identify_as_user_and_get_available_authenticators("parent")
+            client.combination_ids["APP"] = "S3"
+            await client.authenticate_with_app()
+
+    with pytest.raises(MitIDError, match="Not available"):
+        asyncio.run(login())
+
+
 def test_a_wrong_proof_is_refused() -> None:
     async def login() -> None:
         async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
@@ -185,14 +214,14 @@ def test_a_user_with_no_authenticator_that_can_be_started_cannot_log_in() -> Non
         asyncio.run(run())
 
 
-def test_an_authenticator_the_user_does_not_have_cannot_be_chosen() -> None:
+def test_an_authenticator_the_user_does_not_have_is_not_asked_for() -> None:
     async def run() -> None:
         async with SimulatedMitID() as mitid, aiohttp.ClientSession() as session:
             client = await started_client(mitid, session)
             await client.identify_as_user_and_get_available_authenticators("parent")
             await client.authenticate_with_token("123456")
 
-    with pytest.raises(MitIDError, match="Not available"):
+    with pytest.raises(MitIDError, match=r"no TOKEN authenticator \(offered: APP\)"):
         asyncio.run(run())
 
 

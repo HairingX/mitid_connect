@@ -101,6 +101,10 @@ class User:
     token_digits: str = "123456"
     """The digits the code token shows."""
     password: str = "simulated-password"
+    app_combination: str = APP_COMBINATION
+    """The ID MitID offers the app under: S3, S4 for the app with a chip, or L2."""
+    first: str = "APP"
+    """The authenticator MitID starts the login with, where the user has it."""
 
 
 @dataclass
@@ -244,11 +248,9 @@ class SimulatedMitID:
     @staticmethod
     def _combinations(user: User) -> dict[str, str]:
         """The user's combinations, by ID, each with its first authenticator."""
-        return {
-            combination: kind
-            for combination, kind, has in ((APP_COMBINATION, "APP", user.app), (TOKEN_COMBINATION, "TOKEN", user.code_token))
-            if has
-        }
+        offered = [(user.app_combination, "APP", user.app), (TOKEN_COMBINATION, "TOKEN", user.code_token)]
+        offered.sort(key=lambda item: item[1] != user.first)
+        return {combination: kind for combination, kind, has in offered if has}
 
     async def _next(self, request: web.Request) -> web.Response:
         login = self._login(request)
@@ -268,7 +270,7 @@ class SimulatedMitID:
                 return self._cannot_be_started()
             login.authenticator = _Authenticator(next(iter(combinations.values())))
         authenticator = login.authenticator
-        names = {APP_COMBINATION: ["MitID app"], TOKEN_COMBINATION: ["Code token", "Password"]}
+        names = {"APP": ["MitID app"], "TOKEN": ["Code token", "Password"]}
         return web.json_response(
             {
                 "errors": [],
@@ -279,8 +281,8 @@ class SimulatedMitID:
                     "authenticatorSessionId": authenticator.session_id,
                 },
                 "combinations": [
-                    {"id": combination, "combinationItems": [{"name": name} for name in names[combination]]}
-                    for combination in combinations
+                    {"id": combination, "combinationItems": [{"name": name} for name in names[kind]]}
+                    for combination, kind in combinations.items()
                 ],
             }
         )
