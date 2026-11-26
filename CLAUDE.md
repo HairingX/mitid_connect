@@ -11,8 +11,8 @@ It knows nothing of any one service.
   tracked file. A live test takes them from environment variables and skips without them.
 - It talks only to MitID (`www.mitid.dk`) and, for choosing between identities, to the
   NemLog-in page the service's flow is on.
-- The code is MIT-licensed. It carries on Hundter's MitID-BrowserClient, whose copyright stays
-  in `LICENSE`.
+- The code is MIT-licensed. It carries on an earlier MitID browser client, whose copyright
+  notice stays in `LICENSE`, as the licence requires; the README names no one else.
 
 <!-- BEGIN HairingX/workflows: shared; edit it there -->
 ## Shared by every library
