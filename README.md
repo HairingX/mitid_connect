@@ -33,4 +33,5 @@ range, and fails a share of them, for stress tests.
 
 ## Origin and licence
 
-It carries on MitID-BrowserClient by Hundter, under the MIT licence (`LICENSE`).
+It carries on an earlier MitID browser client under the MIT licence; its copyright notice stays in
+`LICENSE`.
